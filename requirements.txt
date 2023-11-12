@@ -1,0 +1,5 @@
+numpy
+picamera2
+
+# https://www.raspberrypi.com/documentation/accessories/build-hat.html
+build-hat
