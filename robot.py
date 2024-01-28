@@ -17,6 +17,8 @@ class Robot:
         self.speed = 0
         # Startet den Buzzer
         self.LED_PIN = 21
+        # Speichert, ob die LED gerade an oder aus geschalten ist
+        self.led_status=1
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.LED_PIN, GPIO.OUT, initial=GPIO.LOW)
 
@@ -50,14 +52,16 @@ class Robot:
     
     # Lenkt den Roboter indem es den entsprechenden Motor um 1 - x Protzent verlangsamt
     def steer(self, x):
-        percentage = -30 #self.speed * (1 - abs(x/100))
+        percentage = self.speed * (1 - abs(x/100))
         if x < 0:
             self.set_left_speed(percentage)
             self.set_right_speed(self.speed)
-        else:
+        elif x > 0:
             self.set_left_speed(self.speed)
             self.set_right_speed(percentage)
-        
+        else:
+            self.set_speed(self.speed)
+
     def stop_motors(self):
         self.motor_left_1.stop()
         self.motor_left_2.stop()
@@ -88,8 +92,10 @@ class Robot:
     def _light_for_seconds(self, seconds):
         print("Led on")
         GPIO.output(self.LED_PIN, GPIO.HIGH)
+        self.led_status = True
         sleep(seconds)
         GPIO.output(self.LED_PIN, GPIO.LOW)
+        self.led_status = False
 
     # Piepst für  x Sekunden
     def light_for_seconds(self, seconds):
@@ -101,6 +107,12 @@ class Robot:
             print(f"speed = {x}")
             self.set_speed(x)
             sleep(5)
+    
+    # Ändert die Led in den jeweils anderen Stand
+    def toggle_led(self):
+        GPIO.output(self.LED_PIN, not self.led_status)
+        self.led_status = not self.led_status
+
             
 if __name__ == "__main__":
     print("Remote Controller: Steuerung nach links und rechts, gebe Werte von -100 bis 100 ein")
