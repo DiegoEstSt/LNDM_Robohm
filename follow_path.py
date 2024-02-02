@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import sys
 import cv2
+import pickle
+from datetime import datetime
+import os
 
 # Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 0: andere Farbe) um 
 def color_to_state(color):
@@ -113,7 +116,8 @@ def get_green_points_positions(line, debug=False):
                     points_positions.append(round((i + j) / 2))
                     print("Found end")
                     break
-        
+            else:    
+                points_positions.append(round((i + j) / 2)) 
         if found:
             if line[i] == 1:
                 found = False
@@ -122,7 +126,7 @@ def get_green_points_positions(line, debug=False):
 
 # Überprüft ob oberhalb des gegeben Punktes die schwarze Linie ist
 def check_green_point_validity(pixel_array, x, y):
-    check_region = 50
+    check_region = 80
     upper_line_detected = False
     for y in range(max(0, y - check_region), y, 3):
         state = color_to_state(pixel_array[y][x])
@@ -144,7 +148,7 @@ def get_relative_green_point_position(pixel_array, x, y):
         elif state == 2:
             break
     
-    for rx in range(min(pixel_array.shape[1], x + check_region), x, -3):
+    for rx in range(min(pixel_array.shape[1] - 1, x + check_region), x, -3):
         print(rx)
         state = color_to_state(pixel_array[y][rx])
         if state == 1:
@@ -181,11 +185,17 @@ def follow_path():
     # Speichert die Laenge des states array
     state_size = 300
 
-    # Speichert die letze Position der Linie. kann entweder "left" oder "right" sein
-    last_line_position = ""
+    # Die folgenden Werte werden genutzt, um zu entscheiden, wie der Roboter fahren soll, wenn er die Linie bei 90° Kurven verliert
+    # Speichert die letze Position der Linie im vl Array
+    last_vl_position = 0
+    # Speichert die letzte Position der Linie im vr Array
+    last_vr_position = 0
     
     # Stelle im Bildarray an der das horizontale States Array entnommen wird, Abstand vom oberen Bildrand
     y_check_distance = 50
+
+    # Stelle im Bildarray an der das horizontale G-States Array entnommen wird, Abstand vom oberen Bildrand
+    gy_check_distance = 120
     
     # Distanz vom seitlichem Rand des Bildes, in dem die vertikalen States entnommen werden sollen
     x_check_distance = 30
@@ -193,22 +203,28 @@ def follow_path():
     # Bereich, der im unten im Bild entfernt wird. Bezieht sich auf den Abstand der Pixel im Originalbild (also nicht geresized). M
     # Momentan nötig, da unten schwarzes Lego und der Schatten des Roboters zu sehen ist und wir auch vertikal im Bild überprüfen,
     # sollten wir dies nicht mehr tun, kann darauf verzichtet werden den unteren Bereich zu entfernen
-    bottom_removal_distance = 30
+    bottom_removal_distance = 70
     
     """Variablen der Pfad-Folge-Logik"""
     # Für genauere Erklärung der Faktoren Benutzung während des Pfad-Folgens ansehen, ca. ab Zeile 220
     correction_factor = 200
     activation_threshold = 40
     marker_turn_time = 0.3
+    speed = 60
+
+    save_dir = "saves/" + datetime.fromtimestamp(time.time()).strftime("%d.%m.%Y,%H:%M:%S") 
 
     while True:
         while GPIO.input(23) != GPIO.HIGH:
             sleep(1)
+
+        if not (os.path.exists(save_dir)):
+            os.makedirs(save_dir)
             
         robot._light_for_seconds(3)
         running = True
             
-        robot.set_speed(70)
+        robot.set_speed(speed)
         while running:
             try:
                 pixel_array = cv2.resize(robot.camera.capture_array("main"), dsize = (state_size, state_size))
@@ -216,21 +232,29 @@ def follow_path():
                 
                 # Ein Array, das ein horizontalen Ausschnitt aus dem Bild beinhaltet, der genutzt wird um den Roboter auf Kurs zu halten
                 h_states = []
+
+                # Ein Array, das ein horizontalen Ausschnitt aus dem Bild beinhaltet, der genutzt wird um die grünen Punkte zu erkenen
+                # Wir verwenden nicht h_states, da es für das Linie-Folgen besser ist weiter oben im Bild zu schauen
+                # und für das erkennen der grünen Punkte es besser ist, eher mittiger zu überprüfen
+                gh_states = []
                 
                 # Zwei Arrays, die vertikale Ausschnitte aus dem Bild beinhalten, vl links, vr rechts
                 vl_states = []
                 vr_states = []
                 
                 h_states_thread = Thread(target = averaged_horizontal_states, args = (pixel_array, y_check_distance, h_states))
+                gh_states_thread = Thread(target = averaged_horizontal_states, args = (pixel_array, gy_check_distance, gh_states))
                 vl_states_thread = Thread(target = averaged_vertical_states, args = (pixel_array, x_check_distance, vl_states))
                 vr_states_thread = Thread(target = averaged_vertical_states, args = (pixel_array, state_size - 1 - x_check_distance, vr_states))
                 
                 h_states_thread.start()
+                gh_states_thread.start()
                 vl_states_thread.start()
                 vr_states_thread.start()
 
                 
                 h_states_thread.join()
+                gh_states_thread.join()
                 vl_states_thread.join()
                 vr_states_thread.join()
                             
@@ -241,42 +265,46 @@ def follow_path():
                 vr_line_position = get_line_position(vr_states)
 
                 # Speichert die x-Koordinate aller grüner Punkte in einem Array bzw. Liste
-                green_points = get_green_points_positions(h_states)
+                green_points = get_green_points_positions(gh_states)
                 # Speichert, ob die grnen Punkte gültig sind, kann einfach per zip(green_points, green_points_validity) zusammen genutzt werden
-                green_points_validity = [check_green_point_validity(pixel_array, point, y_check_distance) for point in green_points]
+                green_points_validity = [check_green_point_validity(pixel_array, point, gy_check_distance) for point in green_points]
                 
-                relative_green_points_positions = [get_relative_green_point_position(pixel_array, point, y_check_distance) for point in green_points]
+                relative_green_points_positions = [get_relative_green_point_position(pixel_array, point, gy_check_distance) for point in green_points]
                 
-                """# Diese drei Zeilen dekommentieren, um eine grafische Übersicht über das State array zu bekommen
-                fig, ax = plt.subplots()
-                ax.stairs(h_states, linewidth=2.5)
-                plt.show()
+               
 
-                # Diese Zeilen dekommentieren, um das aufgenommene Bild zusehen
-                fig, ax = plt.subplots(1)
-                ax.imshow(pixel_array)
+                # Diese drei Zeilen dekommentieren, um eine grafische Übersicht über das State array zu bekommen
+                #fig, ax = plt.subplots()
+                #ax.stairs(h_states, linewidth=2.5)
+                #plt.show()
+
+                # Diese Zeilen dekommentieren, um das aufgenommene Bild zusehen                
+                #fig, ax = plt.subplots(1)
+                #ax.imshow(pixel_array)
             
-                if h_line_position:
-                    ax.add_patch(Circle((h_line_position, y_check_distance), radius=1, color="green"))
-                if vl_line_position:
-                    ax.add_patch(Circle((x_check_distance, vl_line_position), radius=1, color="red"))
-                if vr_line_position:
-                    ax.add_patch(Circle((state_size - 1 - x_check_distance, vr_line_position), radius=1, color="red"))
+                #if h_line_position:
+                #    ax.add_patch(Circle((h_line_position, y_check_distance), radius=1, color="green"))
+                #if vl_line_position:
+                #    ax.add_patch(Circle((x_check_distance, vl_line_position), radius=1, color="red"))
+                #if vr_line_position:
+                #    ax.add_patch(Circle((state_size - 1 - x_check_distance, vr_line_position), radius=1, color="red"))
                 
-                for point in green_points:
-                    ax.add_patch(Circle((point, y_check_distance), radius=1, color="yellow"))
-                    if check_green_point_validity(pixel_array, point, y_check_distance):
-                        ax.add_patch(Circle((point, y_check_distance), radius=3, color="purple"))
-                        if get_relative_green_point_position(pixel_array, point, y_check_distance) == "left":
-                            ax.add_patch(Circle((point, y_check_distance), radius=3, color="orange"))
-                        if get_relative_green_point_position(pixel_array, point, y_check_distance) == "right":
-                            ax.add_patch(Circle((point, y_check_distance), radius=3, color="blue"))
+                #for point in green_points:
+                #    ax.add_patch(Circle((point, y_check_distance), radius=1, color="yellow"))
+                #    if check_green_point_validity(pixel_array, point, y_check_distance):
+                #       ax.add_patch(Circle((point, y_check_distance), radius=3, color="purple"))
+                #        if get_relative_green_point_position(pixel_array, point, y_check_distance) == "left":
+                #            ax.add_patch(Circle((point, y_check_distance), radius=3, color="orange"))
+                #        if get_relative_green_point_position(pixel_array, point, y_check_distance) == "right":
+                #            ax.add_patch(Circle((point, y_check_distance), radius=3, color="blue"))
+                
 
-
-                        
-
-                plt.show()
-                continue"""
+                # Das Bild zu generien und zu speichern dauert zu lange. Nach meinen Tests erreicht das Programm mit
+                # dieser Zeile 1 Durchlauf pro Sekunde und ohne der Zeile 5 - 8 
+                
+                #plt.savefig(save_dir + '/%d.png' % frames)
+                #plt.close()
+                #continue
 
 
                 # ----- Startet die Pfad Folgen Logic -------
@@ -286,13 +314,14 @@ def follow_path():
                 #print("")
    
 
+                steering = 0
                 if h_line_position:
                     # Falls die Linie weiter als der activation_threshold von der Mitte entfernt ist
                     if abs(h_line_position - (state_size / 2)) > activation_threshold:
                         percentage = (1 - ((h_line_position / state_size) * 2))
                         steering = (max(-100, min(100, percentage * -correction_factor)))
                         #print("Percentage:" + str(percentage))
-                        #print("Lenken mit dem Wert: " + str(steering))
+                        print("Lenken mit dem Wert: " + str(steering))
                         robot.steer(int(steering))
                         if vl_line_position or vr_line_position:
                             robot.turn(int(steering))
@@ -304,12 +333,19 @@ def follow_path():
                         print("Validity", green_points_validity)
                         print("Relative Position", relative_green_points_positions)
                         if len(green_points) >= 2 and all(green_points_validity):
-                            pass
-                        for (green_point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
-                            if relative_position and validity and relative_position != 0: 
-                                print("drehen nach", relative_position)
-                                robot.turn(-100 if relative_position == "left" else 100)
-                                sleep(1)
+                            robot.turn_90_degrees("left")
+                            robot.turn_90_degrees("left")
+                        else:
+                            for (green_point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
+                                if relative_position and validity and relative_position != 0: 
+                                    print("drehen nach", relative_position)
+                                    robot.turn_90_degrees(relative_position)
+
+                with open(f"{save_dir}/{frames}.txt", "wb") as f:
+                    pickle.dump([pixel_array, h_line_position, vl_line_position, vr_line_position, green_points, green_points_validity, relative_green_points_positions, steering], f)
+
+                last_vl_position = vl_line_position
+                last_vr_position = vr_line_position
 
                 # Wenn der Knopf gedrückt wird, dann wird das Programm beendet
                 if GPIO.input(23) == GPIO.HIGH:
