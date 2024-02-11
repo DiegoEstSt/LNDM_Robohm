@@ -3,6 +3,7 @@ from picamera2 import Picamera2
 import RPi.GPIO as GPIO
 from time import sleep
 import threading
+import sys
 
 class Robot:
     def __init__(self):
@@ -29,7 +30,6 @@ class Robot:
         self.motor_left_1.start(speed * (-1))
         self.motor_left_2.start(speed * (-1))
 
-
     #  Setzt die Geschwindigkeit vom linken Motor (Werte von -100 bis 100)
     def set_right_speed(self, speed):
         self.motor_right_1.start(speed)
@@ -54,22 +54,44 @@ class Robot:
     def steer(self, x):
         percentage = self.speed * (1 - abs(x/100))
         if x < 0:
-            self.set_left_speed(percentage)
+            if percentage < 1:
+                self.stop_left_motors()
+            else:
+                self.set_left_speed(percentage)
             self.set_right_speed(self.speed)
+
         elif x > 0:
+            if percentage < 1:
+                self.stop_right_motors()
+            else:
+                self.set_right_speed(percentage)
             self.set_left_speed(self.speed)
-            self.set_right_speed(percentage)
         else:
             self.set_speed(self.speed)
 
-    def stop_motors(self):
+    def turn_90_degrees(self, direction):
+        self.stop_motors()
+        if direction == "left":
+            self.set_left_speed(-100)
+            self.set_right_speed(100)
+        if direction == "right":
+            self.set_left_speed(100)
+            self.set_right_speed(-100)
+        sleep(2)
+
+    def stop_left_motors(self):
         self.motor_left_1.stop()
         self.motor_left_2.stop()
+    
+    def stop_right_motors(self):
         self.motor_right_1.stop()
         self.motor_right_2.stop()
 
+    def stop_motors(self):
+        self.stop_left_motors()
+        self.stop_right_motors()
 
-    
+
     # Dreht die Lenkung je nach gegebenem Wert von -100 (links) bis 100(rechts)
     """def steer(self, x):
         degrees = round(-0.5*x)
@@ -118,11 +140,13 @@ if __name__ == "__main__":
     print("Remote Controller: Steuerung nach links und rechts, gebe Werte von -100 bis 100 ein")
     robot = Robot()
     robot.light_for_seconds(10)
-    robot.set_speed(50)
+    robot.set_speed(100)
     #robot.test_motors()
     #steering_target = 0
     #steering_thread = threading.Thread(target = lambda robot: (robot.steer(steering_target)), daemon=True, args=(robot,))
     #steering_thread.start()
+    robot.turn_90_degrees("left")
+    robot.stop_motors()
     try:
        while True:
         try:        

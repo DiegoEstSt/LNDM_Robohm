@@ -16,7 +16,7 @@ import os
 # Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 0: andere Farbe) um 
 def color_to_state(color):
     red, green, blue = color
-    black_threshold = 75
+    black_threshold = 85
     green_threshold = 30
 
     # Falls alle Farb-Channels sehr niedrig sind ist die Farbe wohl schwarz
@@ -63,9 +63,9 @@ def average_horizontal_state_around_position(pixel_array, x, y, py, my):
 # Berechnet den State (1: Schwarz, 2: Grün, 0: andere Farbe) der durchschnittlichen Farbe des Pixels an der angegebenen Position und der Farbe aller Pixel px links und mx rechts
 def average_vertical_state_around_position(pixel_array, x, y, px, mx):
     y = max(0, y)
-    y = min(pixel_array.shape[1], y)
+    y = min(pixel_array.shape[0], y)
     x_start = max(0, x - mx)
-    x_end = min(pixel_array.shape[0], x + px)
+    x_end = min(pixel_array.shape[1], x + px)
 
     region = pixel_array[y, x_start:x_end]
 
@@ -126,7 +126,7 @@ def get_green_points_positions(line, debug=False):
 
 # Überprüft ob oberhalb des gegeben Punktes die schwarze Linie ist
 def check_green_point_validity(pixel_array, x, y):
-    check_region = 80
+    check_region = 120
     upper_line_detected = False
     for y in range(max(0, y - check_region), y, 3):
         state = color_to_state(pixel_array[y][x])
@@ -186,7 +186,7 @@ def follow_path():
     state_size = 300
 
     # Die folgenden Werte werden genutzt, um zu entscheiden, wie der Roboter fahren soll, wenn er die Linie bei 90° Kurven verliert
-    # Speichert die letze Position der Linie im vl Array
+    # Speichert die letze Position der Linie im vl Array, wert ist None wenn keine Linie gesehen wird
     last_vl_position = 0
     # Speichert die letzte Position der Linie im vr Array
     last_vr_position = 0
@@ -195,7 +195,7 @@ def follow_path():
     y_check_distance = 50
 
     # Stelle im Bildarray an der das horizontale G-States Array entnommen wird, Abstand vom oberen Bildrand
-    gy_check_distance = 120
+    gy_check_distance = 200
     
     # Distanz vom seitlichem Rand des Bildes, in dem die vertikalen States entnommen werden sollen
     x_check_distance = 30
@@ -203,14 +203,14 @@ def follow_path():
     # Bereich, der im unten im Bild entfernt wird. Bezieht sich auf den Abstand der Pixel im Originalbild (also nicht geresized). M
     # Momentan nötig, da unten schwarzes Lego und der Schatten des Roboters zu sehen ist und wir auch vertikal im Bild überprüfen,
     # sollten wir dies nicht mehr tun, kann darauf verzichtet werden den unteren Bereich zu entfernen
-    bottom_removal_distance = 70
+    bottom_removal_distance = 90
     
     """Variablen der Pfad-Folge-Logik"""
     # Für genauere Erklärung der Faktoren Benutzung während des Pfad-Folgens ansehen, ca. ab Zeile 220
     correction_factor = 200
-    activation_threshold = 40
+    activation_threshold = 20
     marker_turn_time = 0.3
-    speed = 60
+    speed = 100
 
     save_dir = "saves/" + datetime.fromtimestamp(time.time()).strftime("%d.%m.%Y,%H:%M:%S") 
 
@@ -316,36 +316,51 @@ def follow_path():
 
                 steering = 0
                 if h_line_position:
-                    # Falls die Linie weiter als der activation_threshold von der Mitte entfernt ist
-                    if abs(h_line_position - (state_size / 2)) > activation_threshold:
-                        percentage = (1 - ((h_line_position / state_size) * 2))
-                        steering = (max(-100, min(100, percentage * -correction_factor)))
-                        #print("Percentage:" + str(percentage))
-                        print("Lenken mit dem Wert: " + str(steering))
-                        robot.steer(int(steering))
-                        if vl_line_position or vr_line_position:
-                            robot.turn(int(steering))
-                    else:
+                    # Falls links und rechts schwarz gesehen wird, muss geradeaus gefahren werden
+                    if vl_line_position and vr_line_position:
                         robot.steer(0)
-                    
-                    if green_points:
-                        print("Green Points", green_points)
-                        print("Validity", green_points_validity)
-                        print("Relative Position", relative_green_points_positions)
-                        if len(green_points) >= 2 and all(green_points_validity):
-                            robot.turn_90_degrees("left")
-                            robot.turn_90_degrees("left")
+                    else:
+                        # Falls die Linie weiter als der activation_threshold von der Mitte entfernt ist
+                        if abs(h_line_position - (state_size / 2)) > activation_threshold:
+                            percentage = (1 - ((h_line_position / state_size) * 2))
+                            steering = (max(-100, min(100, percentage * -correction_factor)))
+                            #print("Percentage:" + str(percentage))
+                            #print("Lenken mit dem Wert: " + str(steering))
+                            robot.steer(int(steering))
+                            if vl_line_position or vr_line_position:
+                                robot.turn(int(steering))
                         else:
-                            for (green_point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
-                                if relative_position and validity and relative_position != 0: 
-                                    print("drehen nach", relative_position)
-                                    robot.turn_90_degrees(relative_position)
+                            robot.steer(0)
+                else:
+                    print("lost")
+                    if last_vl_position:
+                        robot.steer(-100)
+                    elif last_vr_position:
+                        robot.steer(100)
+
+                if green_points:
+                    print("Green Points", green_points)
+                    print("Validity", green_points_validity)
+                    print("Relative Position", relative_green_points_positions)
+                    if any(green_points_validity):
+                        robot.stop_motors()
+                    if len(green_points) >= 2 and all(green_points_validity):
+                        robot.turn_90_degrees("left")
+                        robot.turn_90_degrees("left")
+                    else:
+                        for (green_point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
+                            if relative_position and validity and relative_position != 0: 
+                                print("drehen nach", relative_position)
+                                robot.turn_90_degrees(relative_position)
 
                 with open(f"{save_dir}/{frames}.txt", "wb") as f:
                     pickle.dump([pixel_array, h_line_position, vl_line_position, vr_line_position, green_points, green_points_validity, relative_green_points_positions, steering], f)
 
-                last_vl_position = vl_line_position
-                last_vr_position = vr_line_position
+                # Updated die letzte Position der vertikalen Linien falls er die horizontale Linie noch sieht
+                # Dies steht nicht in der oberen if-Abfrage, da es bei zukünftigen Änderungen zu Problemen führen könnte, falls die Werte zu früh geupdated werden
+                if h_line_position:
+                    last_vl_position = vl_line_position
+                    last_vr_position = vr_line_position
 
                 # Wenn der Knopf gedrückt wird, dann wird das Programm beendet
                 if GPIO.input(23) == GPIO.HIGH:
