@@ -13,11 +13,34 @@ import pickle
 from datetime import datetime
 import os
 
+# Speichert die Laenge des states array
+state_size = 300
+
+# Stelle im Bildarray an der das horizontale States Array entnommen wird, Abstand vom oberen Bildrand
+y_check_distance = 50
+
+# Stelle im Bildarray an der das horizontale G-States Array entnommen wird, Abstand vom oberen Bildrand
+gy_check_distance = 200
+    
+# Distanz vom seitlichem Rand des Bildes, in dem die vertikalen States entnommen werden sollen
+x_check_distance = 30
+    
+# Bereich, der im unten im Bild entfernt wird. Bezieht sich auf den Abstand der Pixel im Originalbild (also nicht geresized). M
+# Momentan nötig, da unten schwarzes Lego und der Schatten des Roboters zu sehen ist und wir auch vertikal im Bild überprüfen,
+# sollten wir dies nicht mehr tun, kann darauf verzichtet werden den unteren Bereich zu entfernen
+bottom_removal_distance = 90
+
+save_dir = "saves/" + datetime.fromtimestamp(time.time()).strftime("%d.%m.%Y,%H:%M:%S") 
+
+obstacle_corners = 0
+
+frames = 0
+
 # Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 0: andere Farbe) um 
 def color_to_state(color):
     red, green, blue = color
     black_threshold = 85
-    green_threshold = 30
+    green_threshold = 50
 
     # Falls alle Farb-Channels sehr niedrig sind ist die Farbe wohl schwarz
     if red < black_threshold and green < black_threshold and blue < black_threshold:
@@ -159,12 +182,97 @@ def get_relative_green_point_position(pixel_array, x, y):
     return False
 
 def stop(robot):
+    print(save_dir)
+    print(frames)
     robot.stop_motors()
     robot._light_for_seconds(1)
+
+def check_for_line(robot):
+    global obstacle_corners
+    pixel_array = cv2.resize(robot.camera.capture_array("main"), dsize = (state_size, state_size))
+    pixel_array = pixel_array[0:state_size - 1 - bottom_removal_distance]
+    v_states = []
+    v_states_thread = Thread(target = averaged_vertical_states, args = (pixel_array, 50, v_states))
+    v_states_thread.start()
+    v_states_thread.join()
+
+    v_line_position = get_line_position(v_states)
+    robot.toggle_led()
+    fig, ax = plt.subplots(1)
+    ax.imshow(pixel_array)
+    if v_line_position:
+        ax.add_patch(Circle((50, v_line_position), radius=1, color="red"))
+    plt.savefig(save_dir + '/%d.png' % obstacle_corners)
+    obstacle_corners += 1
+    plt.close()
+
+    ax.imshow(pixel_array)
+
+    return v_line_position
+
+def bypass_obstacle(robot):
+    robot.set_speed(-100)
+    sleep(0.5)
+    robot.stop_motors()
+    robot.turn_90_degrees_hard("right")
+    robot.set_speed(100)
+    sleep(2)
+
+    robot.turn_90_degrees_hard("left")
+    robot.set_speed(100)
+    start_time = time.time()
+    while time.time() - start_time < 2.5:
+        dist = check_for_line(robot)
+        print("dist = " + str(dist))
+        if dist is not None and dist > 150:
+            robot.turn_90_degrees_hard("right")
+            robot.set_speed(-100)
+            sleep(1.3)
+            robot.stop_motors()
+            robot.set_speed(100)
+            print("ending obstacle routine after part 1")
+            return
+        
+    robot.turn_90_degrees_hard("left")
+    robot.set_speed(100)
+    start_time = time.time()
+    while time.time() - start_time < 3.2:
+        dist = check_for_line(robot)
+        print("dist = " + str(dist))
+        if dist is not None and dist > 150:
+            robot.turn_90_degrees_hard("right")
+            robot.set_speed(-100)
+            sleep(1.2)
+            robot.stop_motors()
+            robot.set_speed(100)
+            print("ending obstacle routine after part 2")
+            return
+    robot.stop_motors()
+    
+    robot.turn_90_degrees_hard("left")
+    robot.set_speed(100)
+    start_time = time.time()
+    while time.time() - start_time < 2:
+        dist = check_for_line(robot)
+        print("dist = " + str(dist))
+        if dist is not None and dist > 150:
+            robot.turn_90_degrees_hard("right")
+            robot.set_speed(-100)
+            sleep(1.3)
+            robot.stop_motors()
+            robot.set_speed(100)
+            print("ending obstacle routine after part 3")
+            return
+        
+    robot.stop_motors()
+    return
+                                                          
+
 
 # Die Funktion, die die Logik zum Folgen der Linie beinhaltet, aufrufen um den Robotor die Linie folgen zu lassen
 # Es muss noch der Knopf betätigt werden, damit der Roboter startet, mit dem Knopf lässt sich der Roboter wieder anhalten und auch wieder starten
 def follow_path():
+    global frames
     robot = Robot()
 
     # Konfiguriert die Kamera des Robotes
@@ -174,36 +282,19 @@ def follow_path():
 
     GPIO.setmode(GPIO.BCM)
 
-    GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(22, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
     robot._light_for_seconds(3)
     
-    
-    frames = 0
     start_time = time.time()
     
-    # Speichert die Laenge des states array
-    state_size = 300
+    
 
     # Die folgenden Werte werden genutzt, um zu entscheiden, wie der Roboter fahren soll, wenn er die Linie bei 90° Kurven verliert
     # Speichert die letze Position der Linie im vl Array, wert ist None wenn keine Linie gesehen wird
     last_vl_position = 0
     # Speichert die letzte Position der Linie im vr Array
     last_vr_position = 0
-    
-    # Stelle im Bildarray an der das horizontale States Array entnommen wird, Abstand vom oberen Bildrand
-    y_check_distance = 50
-
-    # Stelle im Bildarray an der das horizontale G-States Array entnommen wird, Abstand vom oberen Bildrand
-    gy_check_distance = 200
-    
-    # Distanz vom seitlichem Rand des Bildes, in dem die vertikalen States entnommen werden sollen
-    x_check_distance = 30
-    
-    # Bereich, der im unten im Bild entfernt wird. Bezieht sich auf den Abstand der Pixel im Originalbild (also nicht geresized). M
-    # Momentan nötig, da unten schwarzes Lego und der Schatten des Roboters zu sehen ist und wir auch vertikal im Bild überprüfen,
-    # sollten wir dies nicht mehr tun, kann darauf verzichtet werden den unteren Bereich zu entfernen
-    bottom_removal_distance = 90
     
     """Variablen der Pfad-Folge-Logik"""
     # Für genauere Erklärung der Faktoren Benutzung während des Pfad-Folgens ansehen, ca. ab Zeile 220
@@ -212,10 +303,8 @@ def follow_path():
     marker_turn_time = 0.3
     speed = 100
 
-    save_dir = "saves/" + datetime.fromtimestamp(time.time()).strftime("%d.%m.%Y,%H:%M:%S") 
-
     while True:
-        while GPIO.input(23) != GPIO.HIGH:
+        while GPIO.input(22) != GPIO.HIGH:
             sleep(1)
 
         if not (os.path.exists(save_dir)):
@@ -225,6 +314,7 @@ def follow_path():
         running = True
             
         robot.set_speed(speed)
+        robot.start_dist_sensors()
         while running:
             try:
                 pixel_array = cv2.resize(robot.camera.capture_array("main"), dsize = (state_size, state_size))
@@ -270,8 +360,9 @@ def follow_path():
                 green_points_validity = [check_green_point_validity(pixel_array, point, gy_check_distance) for point in green_points]
                 
                 relative_green_points_positions = [get_relative_green_point_position(pixel_array, point, gy_check_distance) for point in green_points]
-                
                
+                last_dist_front = robot.dist_front
+                robot.measure_dist_front()
 
                 # Diese drei Zeilen dekommentieren, um eine grafische Übersicht über das State array zu bekommen
                 #fig, ax = plt.subplots()
@@ -312,6 +403,12 @@ def follow_path():
                 #print("Horizontale linke Linienposition", vl_line_position)
                 #print("Horizontale rechte Linienposition", vl_line_position)
                 #print("")
+
+                if last_dist_front and robot.dist_front:
+                    if last_dist_front < 7 and robot.dist_front < 7:
+                        print("Hindernis erkannt")
+                        bypass_obstacle(robot)
+                        print("Hindernis bewältigt")
    
 
                 steering = 0
@@ -363,7 +460,7 @@ def follow_path():
                     last_vr_position = vr_line_position
 
                 # Wenn der Knopf gedrückt wird, dann wird das Programm beendet
-                if GPIO.input(23) == GPIO.HIGH:
+                if GPIO.input(22) == GPIO.HIGH:
                     stop(robot)
                     running = False
                 
