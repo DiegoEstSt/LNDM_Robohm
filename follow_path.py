@@ -36,18 +36,29 @@ obstacle_corners = 0
 
 frames = 0
 
-# Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 0: andere Farbe) um 
+running = False
+
+
+# Die Robot Variable wurde hierher verschoben, damit die stop und is_running Funktionen funktionieren
+# Das Ganze ist nicht so clean, aber es musste noch schnell vorm Wettbewerb gemacht werden
+robot = 0
+
+
+# Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 3: Rot, 0: andere Farbe) um 
 def color_to_state(color):
     red, green, blue = color
     black_threshold = 85
-    green_threshold = 50
+    green_threshold = 40
+    red_threshold = 50
 
-    # Falls alle Farb-Channels sehr niedrig sind ist die Farbe wohl schwarz
-    if red < black_threshold and green < black_threshold and blue < black_threshold:
-        return 1
     # Falls der Grün-Channel deutlich am stärksten ist ist die Farbe wohl grün
-    elif green > (red + blue) / 2 + green_threshold:
+    if green > (red + blue) / 2 + green_threshold:
         return 2
+    # Falls alle Farb-Channels sehr niedrig sind ist die Farbe wohl schwarz
+    elif red < black_threshold and green < black_threshold and blue < black_threshold:
+        return 1
+    if red > (green + blue) / 2 + red_threshold:
+        return 3
     else:
         return 0
 
@@ -167,6 +178,7 @@ def get_relative_green_point_position(pixel_array, x, y):
     for lx in range(max(0, x - check_region), x, 3):
         state = color_to_state(pixel_array[y][lx])
         if state == 1:
+            print("links:", lx)
             return "right"
         elif state == 2:
             break
@@ -181,13 +193,23 @@ def get_relative_green_point_position(pixel_array, x, y):
     
     return False
 
-def stop(robot):
+def stop():
+    global running
+    global robot
+    if robot == 0:
+        print("Kann nicht stoppen, Roboter ist nicht initialisiert")
+        return
+    robot.light_for_seconds(1)
+    running = False
     print(save_dir)
     print(frames)
     robot.stop_motors()
-    robot._light_for_seconds(1)
 
-def check_for_line(robot):
+def is_running():
+    global running
+    return running
+
+def check_for_line():
     global obstacle_corners
     pixel_array = cv2.resize(robot.camera.capture_array("main"), dsize = (state_size, state_size))
     pixel_array = pixel_array[0:state_size - 1 - bottom_removal_distance]
@@ -210,21 +232,29 @@ def check_for_line(robot):
 
     return v_line_position
 
-def bypass_obstacle(robot):
+def bypass_obstacle():
     robot.set_speed(-100)
-    sleep(0.5)
+    sleep(1)
     robot.stop_motors()
+    sleep(0.75)
     robot.turn_90_degrees_hard("right")
+    # Die Motoren sind träge und funktionieren nicht perfekt, diese Zeile verhindert, dass der Roboter beim Losfahren 
+    # Mit dem linken Motor schneller los fährt als mit dem Rechten
+    robot.speed = 100
+    robot.steer(-100)
+    sleep(1)
     robot.set_speed(100)
-    sleep(2)
-
+    sleep(1.4)
+    
+    robot.stop_motors()
+    sleep(0.5)
     robot.turn_90_degrees_hard("left")
     robot.set_speed(100)
     start_time = time.time()
-    while time.time() - start_time < 2.5:
-        dist = check_for_line(robot)
+    while time.time() - start_time < 3.5:
+        dist = check_for_line()
         print("dist = " + str(dist))
-        if dist is not None and dist > 150:
+        if dist is not None and dist > 30:
             robot.turn_90_degrees_hard("right")
             robot.set_speed(-100)
             sleep(1.3)
@@ -237,9 +267,9 @@ def bypass_obstacle(robot):
     robot.set_speed(100)
     start_time = time.time()
     while time.time() - start_time < 3.2:
-        dist = check_for_line(robot)
+        dist = check_for_line()
         print("dist = " + str(dist))
-        if dist is not None and dist > 150:
+        if dist is not None and dist > 30:
             robot.turn_90_degrees_hard("right")
             robot.set_speed(-100)
             sleep(1.2)
@@ -252,10 +282,10 @@ def bypass_obstacle(robot):
     robot.turn_90_degrees_hard("left")
     robot.set_speed(100)
     start_time = time.time()
-    while time.time() - start_time < 2:
-        dist = check_for_line(robot)
+    while time.time() - start_time < 4:
+        dist = check_for_line()
         print("dist = " + str(dist))
-        if dist is not None and dist > 150:
+        if dist is not None and dist > 30:
             robot.turn_90_degrees_hard("right")
             robot.set_speed(-100)
             sleep(1.3)
@@ -263,16 +293,13 @@ def bypass_obstacle(robot):
             robot.set_speed(100)
             print("ending obstacle routine after part 3")
             return
-        
-    robot.stop_motors()
-    return
-                                                          
 
 
 # Die Funktion, die die Logik zum Folgen der Linie beinhaltet, aufrufen um den Robotor die Linie folgen zu lassen
-# Es muss noch der Knopf betätigt werden, damit der Roboter startet, mit dem Knopf lässt sich der Roboter wieder anhalten und auch wieder starten
 def follow_path():
     global frames
+    global robot
+    global running
     robot = Robot()
 
     # Konfiguriert die Kamera des Robotes
@@ -304,6 +331,9 @@ def follow_path():
     speed = 100
 
     while True:
+        sleep(1)
+
+        robot.stop_motors()
         while GPIO.input(22) != GPIO.HIGH:
             sleep(1)
 
@@ -404,10 +434,19 @@ def follow_path():
                 #print("Horizontale rechte Linienposition", vl_line_position)
                 #print("")
 
+                for i in range(0, state_size - 1, 3):
+                    if h_states[i] == 3:
+                        print("Stoppen weil Rot")
+                        robot.stop_motors()
+                        sleep(10)
+                        robot.set_speed(100)
+                        sleep(1)
+                        break
+
                 if last_dist_front and robot.dist_front:
                     if last_dist_front < 7 and robot.dist_front < 7:
                         print("Hindernis erkannt")
-                        bypass_obstacle(robot)
+                        bypass_obstacle()
                         print("Hindernis bewältigt")
    
 
@@ -429,11 +468,12 @@ def follow_path():
                         else:
                             robot.steer(0)
                 else:
-                    print("lost")
                     if last_vl_position:
                         robot.steer(-100)
                     elif last_vr_position:
                         robot.steer(100)
+                    else:
+                        robot.set_speed(100)
 
                 if green_points:
                     print("Green Points", green_points)
@@ -446,9 +486,18 @@ def follow_path():
                         robot.turn_90_degrees("left")
                     else:
                         for (green_point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
-                            if relative_position and validity and relative_position != 0: 
+                            if relative_position and validity: 
                                 print("drehen nach", relative_position)
+                                robot.set_speed(100)
+                                sleep(0.5)
+                                if relative_position == "left":
+                                    last_vl_position = 200
+                                    last_vr_position = None
+                                elif relative_position == "right":
+                                    last_vl_position = None
+                                    last_vr_position = 200
                                 robot.turn_90_degrees(relative_position)
+                                robot.speed = 100
 
                 with open(f"{save_dir}/{frames}.txt", "wb") as f:
                     pickle.dump([pixel_array, h_line_position, vl_line_position, vr_line_position, green_points, green_points_validity, relative_green_points_positions, steering], f)
@@ -459,9 +508,11 @@ def follow_path():
                     last_vl_position = vl_line_position
                     last_vr_position = vr_line_position
 
+                
+
                 # Wenn der Knopf gedrückt wird, dann wird das Programm beendet
                 if GPIO.input(22) == GPIO.HIGH:
-                    stop(robot)
+                    stop()
                     running = False
                 
 
@@ -470,15 +521,17 @@ def follow_path():
                     print(f"fps: {frames / (time.time() - start_time)}")
                 robot.toggle_led()
 
+
             except KeyboardInterrupt:
-                stop(robot)
+                stop()
                 sys.exit()
+    robot.stop_motors()
 
 
 if __name__ == "__main__":
     # Wenn das Programm vom User gestartet wird, wird es vermutlich crashen, da es bereits automatisch gestartet wurde
     # Das automatisch gestartete Programm kann beendet werden, indem als erstes die PID ermittelt wird
-    # Hierzu einfach "systemctl status follow_path.service" eingeben
+    # Hierzu einfach "systemctl status follow_path.service" oder "ps aux | grep -i follow_path" eingeben
     # Die PID merken und dann "kill -9 PID" eingeben und PID durch die entsprechende PID ersetzen
     follow_path()
     

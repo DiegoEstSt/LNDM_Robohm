@@ -200,13 +200,17 @@ class Robot:
     def turn_90_degrees_hard(self, direction):
         self.stop_motors()
         if direction == "left":
-            self.set_left_speed(-100)
+            self.stop_motors()
             self.set_right_speed(100)
+            self.set_left_speed(-100)
         if direction == "right":
-            self.set_left_speed(100)
+            self.stop_motors()
             self.set_right_speed(-100)
+            self.set_left_speed(100)
+        start_time = time.time()
         sleep(2.1)
         self.stop_motors()
+        sleep(0.5)
 
     def drive_around_edge(self):
         self.set_speed(100)
@@ -279,9 +283,15 @@ class Robot:
 if __name__ == "__main__":
     print("Remote Controller: Steuerung nach links und rechts, gebe Werte von -100 bis 100 ein")
     robot = Robot()
+    robot.set_speed(100)
+    robot.stop_motors()
     robot.start_dist_sensors()
+    robot.turn_90_degrees_hard("right")
+    robot.steer(-100)
     sleep(1)
     robot.set_speed(100)
+    sleep(2)
+    sys.exit()
     for i in range(100):
         print("front:", robot.measure_dist_front())
         print("left:", robot.measure_dist_left())
