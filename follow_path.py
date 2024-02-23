@@ -49,7 +49,7 @@ def color_to_state(color):
     red, green, blue = color
     black_threshold = 85
     green_threshold = 40
-    red_threshold = 50
+    red_threshold = 80
 
     # Falls der Grün-Channel deutlich am stärksten ist ist die Farbe wohl grün
     if green > (red + blue) / 2 + green_threshold:
@@ -328,7 +328,7 @@ def follow_path():
     correction_factor = 200
     activation_threshold = 20
     marker_turn_time = 0.3
-    speed = 100
+    speed = 60
 
     while True:
         sleep(1)
@@ -434,12 +434,15 @@ def follow_path():
                 #print("Horizontale rechte Linienposition", vl_line_position)
                 #print("")
 
+                print("last vl position", last_vl_position)
+                print("last vr position", last_vr_position)
+
                 for i in range(0, state_size - 1, 3):
                     if h_states[i] == 3:
                         print("Stoppen weil Rot")
                         robot.stop_motors()
                         sleep(10)
-                        robot.set_speed(100)
+                        robot.set_speed(speed)
                         sleep(1)
                         break
 

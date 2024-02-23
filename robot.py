@@ -185,41 +185,30 @@ class Robot:
 
     # Dreht den Roboter im Zweifelsfall um weniger als 90°
     def turn_90_degrees(self, direction):
-        self.stop_motors()
         if direction == "left":
-            self.set_left_speed(-100)
-            self.set_right_speed(100)
-        if direction == "right":
-            self.set_left_speed(100)
-            self.set_right_speed(-100)
-        sleep(2)
-        self.stop_motors()
+            self.motor_left_1.run_for_rotations(6, 100, False)
+            self.motor_left_2.run_for_rotations(6, 100, False)
+            self.motor_right_1.run_for_rotations(6, 100, False)
+            self.motor_right_2.run_for_rotations(6, 100, True)
+        elif direction == "right":
+            self.motor_left_1.run_for_rotations(-6, 100, False)
+            self.motor_left_2.run_for_rotations(-6, 100, False)
+            self.motor_right_1.run_for_rotations(-6, 100, False)
+            self.motor_right_2.run_for_rotations(-6, 100, True)
 
 
     # Dreht den Roboter im Zweifelsfall um mehr als 90°
     def turn_90_degrees_hard(self, direction):
-        self.stop_motors()
         if direction == "left":
-            self.stop_motors()
-            self.set_right_speed(100)
-            self.set_left_speed(-100)
-        if direction == "right":
-            self.stop_motors()
-            self.set_right_speed(-100)
-            self.set_left_speed(100)
-        start_time = time.time()
-        sleep(2.1)
-        self.stop_motors()
-        sleep(0.5)
-
-    def drive_around_edge(self):
-        self.set_speed(100)
-        sleep(2)
-        self.turn_90_degrees_hard("left")
-        self.stop_motors()
-        self.set_speed(100)
-        sleep(1)
-        self.stop_motors()
+            self.motor_left_1.run_for_rotations(6, 100, False)
+            self.motor_left_2.run_for_rotations(6, 100, False)
+            self.motor_right_1.run_for_rotations(6, 100, False)
+            self.motor_right_2.run_for_rotations(6, 100, True)
+        elif direction == "right":
+            self.motor_left_1.run_for_rotations(-6, 100, False)
+            self.motor_left_2.run_for_rotations(-6, 100, False)
+            self.motor_right_1.run_for_rotations(-6, 100, False)
+            self.motor_right_2.run_for_rotations(-6, 100, True)
 
     def stop_left_motors(self):
         self.motor_left_1.stop()
@@ -287,7 +276,8 @@ if __name__ == "__main__":
     robot.stop_motors()
     robot.start_dist_sensors()
     robot.turn_90_degrees_hard("right")
-    robot.steer(-100)
+    sleep(2)
+    #robot.steer(-100)
     sleep(1)
     robot.set_speed(100)
     sleep(2)
