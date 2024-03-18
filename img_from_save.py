@@ -11,18 +11,21 @@ x_check_distance = 30
 state_size = 300
 
 
-# Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 0: andere Farbe) um 
+# Wandelt einen Farbwert in einen  State (1: Schwarz, 2: Grün, 3: Rot, 0: andere Farbe) um 
 def color_to_state(color):
     red, green, blue = color
     black_threshold = 85
-    green_threshold = 50
+    green_threshold = 40
+    red_threshold = 50
 
     # Falls der Grün-Channel deutlich am stärksten ist ist die Farbe wohl grün
     if green > (red + blue) / 2 + green_threshold:
         return 2
     # Falls alle Farb-Channels sehr niedrig sind ist die Farbe wohl schwarz
-    if red < black_threshold and green < black_threshold and blue < black_threshold:
+    elif red < black_threshold and green < black_threshold and blue < black_threshold:
         return 1
+    if red > (green + blue) / 2 + red_threshold:
+        return 3
     else:
         return 0
 
@@ -125,6 +128,7 @@ def get_green_points_positions(line, debug=False):
 # Überprüft ob oberhalb des gegeben Punktes die schwarze Linie ist
 def check_green_point_validity(pixel_array, x, y):
     check_region = 120
+    averaged_horizontal_states
     upper_line_detected = False
     for y in range(max(0, y - check_region), y, 3):
         state = color_to_state(pixel_array[y][x])
@@ -142,6 +146,7 @@ def get_relative_green_point_position(pixel_array, x, y):
     for lx in range(max(0, x - check_region), x, 3):
         state = color_to_state(pixel_array[y][lx])
         if state == 1:
+            print("links:", lx)
             return "right"
         elif state == 2:
             break
@@ -155,6 +160,24 @@ def get_relative_green_point_position(pixel_array, x, y):
     
     return False
 
+def get_relative_green_point_position_2(pixel_array, x, y):
+    check_region = 70
+    for lx in range(max(0, x - check_region), x, 3):
+        state = color_to_state(pixel_array[y][lx])
+        if state == 1:
+            print("links:", lx)
+            return "right"
+        elif state == 2:
+            break
+    
+    for rx in range(min(pixel_array.shape[1] - 1, x + check_region), x, -3):
+        state = color_to_state(pixel_array[y][rx])
+        if state == 1:
+            return "left"
+        elif state == 2:
+            break
+    
+    return False
 
 
 
@@ -221,6 +244,10 @@ def generate_save():
                                 ax.add_patch(Circle((point, gy_check_distance), radius=3, color="orange"))
                             if get_relative_green_point_position(pixel_array, point, gy_check_distance) == "right":
                                 ax.add_patch(Circle((point, gy_check_distance), radius=3, color="blue"))
+                        
+                        for i in range(0, state_size - 1, 3):
+                            if h_states[i] == 3:
+                                print("red")
                     else:
                         if h_line_position:
                             ax.add_patch(Circle((h_line_position, y_check_distance), radius=1, color="green"))
@@ -229,6 +256,7 @@ def generate_save():
                         if vr_line_position:
                             ax.add_patch(Circle((state_size - 1 - x_check_distance, vr_line_position), radius=1, color="red"))
                         print(green_points)
+                        print(green_points_validity)
                         for (point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
                             ax.add_patch(Circle((point, gy_check_distance), radius=1, color="yellow"))
                             if validity:
@@ -284,7 +312,7 @@ def generate_save():
                                     if get_relative_green_point_position(pixel_array, point, gy_check_distance) == "right":
                                         ax.add_patch(Circle((point, gy_check_distance), radius=3, color="blue"))
                     else:
-                        print("Greem Points:", green_points)
+                        print("Green Points:", green_points)
                         for (point, validity, relative_position) in zip(green_points, green_points_validity, relative_green_points_positions):
                             ax.add_patch(Circle((point, gy_check_distance), radius=1, color="yellow"))
                             if validity:
